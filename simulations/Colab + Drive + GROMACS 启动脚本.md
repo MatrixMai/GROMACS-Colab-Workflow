@@ -1,3 +1,33 @@
+
+import os
+import shutil
+
+# 挂载Drive
+from google.colab import drive
+drive.mount('/content/drive')
+
+# --- 关键性能优化 ---
+# 将源代码从慢速的Drive复制到快速的Colab本地磁盘
+gdrive_source_path = "/content/drive/MyDrive/FEP_F335A/gromacs-2023.3"
+local_source_path = "/content/gromacs-2023.3"
+
+print(f"▶️ 正在从 {gdrive_source_path} 复制到 {local_source_path}...")
+if os.path.exists(local_source_path):
+    print("✅ 本地目录已存在，跳过复制。")
+else:
+    shutil.copytree(gdrive_source_path, local_source_path)
+    print("✅ 复制完成。")
+
+# 创建编译目录
+local_build_path = os.path.join(local_source_path, "build")
+if not os.path.exists(local_build_path):
+    os.makedirs(local_build_path)
+
+%cd {local_build_path}
+!pwd
+
+-------------------------------------------------------
+
 **Colab因为编译时间过长而断开连接，是导致安装失败的主要原因。**
 
 1.  **闲置断开（最常见的原因）**：如果您在**90分钟**内没有与Colab笔记本页面进行任何交互（比如点击单元格、输入代码等），Colab会认为您已经离开，为了节省Google的计算资源，它会自动终止您的会话。GROMACS的编译过程（尤其是`make`那一步）可能长达数小时，这段时间您无法与页面交互，因此很容易被判定为“闲置”。
