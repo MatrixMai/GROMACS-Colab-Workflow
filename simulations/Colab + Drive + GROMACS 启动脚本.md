@@ -1,3 +1,178 @@
+Colab 对单次计算的运行时长和资源使用都有隐藏的限制。当一个单元格（cell）运行时间过长、占用CPU/内存过多时，Colab 就会自动断开连接以保护其资源。`make` 编译过程恰好就是这种计算密集型任务。
+
+**将任务分解成多个独立的步骤是解决这个问题的最佳策略。**
+
+这样做的好处是：
+1.  **降低单次负载**：每个单元格的工作量变小，不容易触发Colab的限制。
+2.  **保存进度**：每一步成功后，其结果（如复制的文件、生成的配置）都会保存在Colab的虚拟机里。即使后面的步骤断开，您也只需要从失败的那一步重新开始，而无需从头再来。
+3.  **精确定位问题**：如果再出问题，我们可以立刻知道是哪一小步出了问题。
+
+---
+
+### **分步执行方案**
+
+请**依次**将下面的代码块复制到**不同**的Colab单元格中，然后**一个一个地按顺序执行**。请务必在一个单元格执行完毕并显示绿色对勾（✅）后，再运行下一个。
+
+#### **准备工作：激活防断开脚本（必做！）**
+
+在开始第一步之前，请再次在浏览器的开发者控制台（按 `F12`，选择 `Console` 标签页）中运行此代码。这是确保第4步长时间编译成功的关键。
+
+```javascript
+function ClickConnect(){
+    console.log("【防断开脚本】正在运行...");
+    document.querySelector("colab-connect-button").click()
+}
+setInterval(ClickConnect, 60000)
+```
+
+---
+
+#### **第1步：挂载Drive并清理环境**
+
+这个单元格负责连接到您的Google Drive，并清理掉上次运行可能留下的本地旧文件，确保一个干净的开始。
+
+```python
+# Cell 1: Mount Drive & Clean Up
+import os
+import shutil
+from google.colab import drive
+
+print("▶️ [步骤 1/6] 正在挂载 Google Drive 并清理环境...")
+
+# 挂载 Drive
+try:
+    drive.mount('/content/drive', force_remount=True)
+    print("✅ Drive 挂载成功。")
+except Exception as e:
+    raise RuntimeError(f"❌ Drive 挂载失败: {e}")
+
+# 清理本地可能存在的旧目录
+local_source_path = "/content/gromacs-2023.3"
+if os.path.exists(local_source_path):
+    print(f"    正在清理本地旧目录: {local_source_path}...")
+    shutil.rmtree(local_source_path)
+    print("    ✅ 旧目录清理完毕。")
+else:
+    print("    ✅ 本地环境很干净，无需清理。")
+
+print("\n🎉 步骤 1 完成！可以继续执行下一步。")
+```
+
+---
+
+#### **第2步：从Drive复制源码**
+
+这个单元格只做一件事：把您Drive中的GROMACS源码复制到Colab的本地环境中。这是一个I/O密集型操作。
+
+```python
+# Cell 2: Copy Source Code
+import shutil
+
+print("▶️ [步骤 2/6] 正在从您的云端硬盘复制源码...")
+
+gdrive_source_path = "/content/drive/MyDrive/FEP_F335A/gromacs-2023.3"
+local_source_path = "/content/gromacs-2023.3"
+
+try:
+    shutil.copytree(gdrive_source_path, local_source_path)
+    print(f"    ✅ 源码已成功复制到: {local_source_path}")
+except Exception as e:
+    raise RuntimeError(f"❌ 源码复制失败，请检查Drive路径是否正确。错误: {e}")
+
+print("\n🎉 步骤 2 完成！可以继续执行下一步。")
+```
+
+---
+
+#### **第3步：CMake配置**
+
+现在源码已经在本地了。这一步我们进入源码文件夹，创建一个新的`build`目录，并运行`cmake`来生成编译所需的`Makefile`。
+
+```python
+# Cell 3: Configure with CMake
+import os
+
+print("▶️ [步骤 3/6] 正在配置编译环境 (CMake)...")
+
+local_source_path = "/content/gromacs-2023.3"
+local_build_path = os.path.join(local_source_path, "build")
+
+# 创建并进入 build 目录
+os.makedirs(local_build_path)
+%cd {local_build_path}
+print(f"    ✅ 已进入新创建的编译目录: {os.getcwd()}")
+
+# 运行 cmake
+!cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA -DCMAKE_INSTALL_PREFIX=/usr/local/gromacs
+
+print("\n🎉 步骤 3 完成！Makefile 已生成。可以继续执行最关键的编译步骤。")
+```
+
+---
+
+#### **第4步：Make编译 (最耗时)**
+
+**这是最关键、最耗时的一步。** 请确保您的防断开脚本正在运行。这个单元格会调用所有CPU核心来执行编译，可能需要**20-40分钟**，请耐心等待。
+
+```python
+# Cell 4: Compile with Make
+print("▶️ [步骤 4/6] 正在执行编译 (make)，这将非常耗时...")
+print("    请保持浏览器页面打开，并确保防断开脚本正在运行。")
+
+# 运行 make，使用所有可用的处理器核心
+!make -j$(nproc)
+
+print("\n🎉 步骤 4 完成！编译成功！胜利在望！")
+```
+
+---
+
+#### **第5步：安装**
+
+编译完成后，安装过程就非常快了。这个单元格会将编译好的文件复制到我们之前指定的安装目录 `/usr/local/gromacs`。
+
+```python
+# Cell 5: Install
+print("▶️ [步骤 5/6] 正在安装 GROMACS...")
+
+# 当前目录应该已经是 /content/gromacs-2023.3/build
+!make install
+
+print("\n🎉 步骤 5 完成！GROMACS 已安装。")
+```
+
+---
+
+#### **第6步：最终验证和收尾**
+
+最后一步！我们来验证一下`gmx`命令是否可以正常使用，然后把工作目录切回您项目的主文件夹。
+
+```python
+# Cell 6: Verify and Finalize
+import os
+
+print("▶️ [步骤 6/6] 正在进行最终验证并切换工作目录...")
+
+gmx_executable = "/usr/local/gromacs/bin/gmx"
+
+print("="*60)
+if os.path.exists(gmx_executable):
+    print("🎉 恭喜！GROMACS 已成功安装并验证！")
+    !{gmx_executable} --version
+else:
+    print("❌ 验证失败。未能找到 gmx 可执行文件。请检查第5步的日志。")
+print("="*60)
+
+# 自动切换回您的项目工作目录
+project_path = "/content/drive/MyDrive/FEP_F335A"
+%cd {project_path}
+print(f"\n✅ 已自动切换到您的工作目录: {os.getcwd()}")
+print("\n🚀 所有步骤已完成！您现在可以在Colab环境中使用GROMACS了。")
+```
+
+
+-----------------------------------------
+
 
 import os
 import shutil
